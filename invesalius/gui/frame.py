@@ -1601,9 +1601,7 @@ class MenuBar(wx.MenuBar):
         )
         segmentation_menu.Append(const.ID_SEGMENTATION_TRACHEA, _("Trachea segmentation (CT)"))
         segmentation_menu.Append(const.ID_SEGMENTATION_MANDIBLE_CT, _("Mandible segmentation (CT)"))
-        segmentation_menu.Append(
-            const.ID_SEGMENTATION_TOTALSEG, _("TotalSegmentator (CT / MRI)")
-        )
+        segmentation_menu.Append(const.ID_SEGMENTATION_TOTALSEG, _("TotalSegmentator (CT / MRI)"))
 
         # Surface Menu
         surface_menu = wx.Menu()
