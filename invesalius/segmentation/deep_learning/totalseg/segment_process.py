@@ -124,7 +124,11 @@ class TotalSegProcess(SegmentProcess):
         comm_array[0] = 0.0
 
         # InVesalius matrix is ZYX, spacing is XYZ. Inference wants ZYX for both.
-        volume_zyx = np.ascontiguousarray(image, dtype=np.float32)
+        # Flip X to match model's RAS+ training orientation (InVesalius stores
+        # DICOM in a LEFT-increasing convention; RAS+ is RIGHT-increasing).
+        # Without this, kidney_left / kidney_right and all lateralized classes
+        # end up on the wrong anatomical side. Un-flip after merge.
+        volume_zyx = np.ascontiguousarray(image[:, :, ::-1], dtype=np.float32)
         spacing_zyx = np.array(self.image_spacing[::-1], dtype=np.float32)
 
         preds = {}
@@ -182,6 +186,9 @@ class TotalSegProcess(SegmentProcess):
             unified = _merge.merge_label_maps(preds, self.task)
         else:
             unified = preds[parts[0]]
+
+        # Reverse the X-flip we did before inference so masks land in InVesalius coords.
+        unified = np.ascontiguousarray(unified[:, :, ::-1])
 
         self._set_status("Writing result")
 
