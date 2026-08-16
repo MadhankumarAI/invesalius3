@@ -31,11 +31,14 @@ if HAS_TORCH:
 TOTALSEG_BACKENDS.append("ONNX")
 
 
-def _all_tasks():
-    from invesalius.segmentation.deep_learning.totalseg.merge import MULTIPART_TASKS
-    from invesalius.segmentation.deep_learning.totalseg.weights import TASK_REGISTRY
-
-    return list(TASK_REGISTRY.keys()) + list(MULTIPART_TASKS.keys())
+# User-facing task labels → internal task ids. Individual sub-models are
+# implementation detail and not exposed here.
+TASK_DISPLAY_MAP = {
+    "CT - High resolution": "ct_total_1_5mm",
+    "CT - Lower resolution": "ct_total_3mm",
+    "MRI": "mri_total",
+}
+_DEFAULT_TASK_DISPLAY = "CT - Lower resolution"
 
 
 def _task_labels(task, cache_only=False):
@@ -63,8 +66,8 @@ class TotalSegmenterDialog(DeepLearningSegmenterDialog):
         # Deferred so import cost is only paid when the dialog opens.
         from invesalius.segmentation.deep_learning.totalseg.segment_process import TotalSegProcess
 
-        self._task_choices = _all_tasks()
-        self._default_task = "ct_total_3mm"
+        self._task_choices = list(TASK_DISPLAY_MAP.keys())
+        self._default_task = _DEFAULT_TASK_DISPLAY
         self._current_labels = {}
         self._current_categories = {}
         self._category_items = {}
@@ -118,7 +121,7 @@ class TotalSegmenterDialog(DeepLearningSegmenterDialog):
 
         self.lbl_status = wx.StaticText(self, -1, "")
 
-        self._populate_tree(self.cb_task.GetValue())
+        self._populate_tree(TASK_DISPLAY_MAP[self.cb_task.GetValue()])
 
         # Not applicable to label-map output.
         self.sld_threshold.Hide()
@@ -134,11 +137,6 @@ class TotalSegmenterDialog(DeepLearningSegmenterDialog):
         row_input.Add(self.cb_input, 1, wx.LEFT, 5)
         main.Add(row_input, 0, wx.ALL | wx.EXPAND, 5)
 
-        row_task = wx.BoxSizer(wx.HORIZONTAL)
-        row_task.Add(self.lbl_task, 0, wx.ALIGN_CENTER, 0)
-        row_task.Add(self.cb_task, 1, wx.LEFT, 5)
-        main.Add(row_task, 0, wx.ALL | wx.EXPAND, 5)
-
         row_backend = wx.BoxSizer(wx.HORIZONTAL)
         row_backend.Add(wx.StaticText(self, wx.ID_ANY, _("Backend")), 0, wx.ALIGN_CENTER, 0)
         row_backend.Add(self.cb_backends, 1, wx.LEFT, 5)
@@ -150,6 +148,11 @@ class TotalSegmenterDialog(DeepLearningSegmenterDialog):
         row_device.Add(self.lbl_device, 0, wx.ALIGN_CENTER, 0)
         row_device.Add(self.cb_devices, 1, wx.LEFT, 5)
         main.Add(row_device, 0, wx.ALL | wx.EXPAND, 5)
+
+        row_task = wx.BoxSizer(wx.HORIZONTAL)
+        row_task.Add(self.lbl_task, 0, wx.ALIGN_CENTER, 0)
+        row_task.Add(self.cb_task, 1, wx.LEFT, 5)
+        main.Add(row_task, 0, wx.ALL | wx.EXPAND, 5)
 
         tree_box = wx.StaticBox(self, -1, _("Structures to segment"))
         tree_sizer = wx.StaticBoxSizer(tree_box, wx.VERTICAL)
@@ -218,7 +221,7 @@ class TotalSegmenterDialog(DeepLearningSegmenterDialog):
             self.tree.Expand(cat_item)
 
     def OnTaskChanged(self, evt):
-        self._populate_tree(self.cb_task.GetValue())
+        self._populate_tree(TASK_DISPLAY_MAP[self.cb_task.GetValue()])
 
     def OnCheckAll(self, evt):
         # Category first, TR_AUTO_CHECK_CHILD cascades to children automatically.
@@ -306,7 +309,7 @@ class TotalSegmenterDialog(DeepLearningSegmenterDialog):
             Publisher.sendMessage("Reload actual slice")
 
     def OnSegment(self, evt):
-        task = self.cb_task.GetValue()
+        task = TASK_DISPLAY_MAP[self.cb_task.GetValue()]
         selected = self._collect_selected_class_ids()
         if not selected:
             dialogs.ErrorMessageBox(
@@ -316,10 +319,24 @@ class TotalSegmenterDialog(DeepLearningSegmenterDialog):
             ).ShowModal()
             return
 
-        self.lbl_status.SetLabel("")  # clear any stale status from a prior run
+        # Disable controls + start timer BEFORE any blocking setup so the UI
+        # reflects the running state immediately (wx.Yield forces the repaint).
+        self.btn_close.Disable()
+        self.btn_stop.Enable()
+        self.btn_segment.Disable()
+        self.chk_new_mask.Disable()
+        self.cb_backends.Disable()
+        self.cb_devices.Disable()
+        self.cb_task.Disable()
+        self.tree.Disable()
+        self.btn_check_all.Disable()
+        self.btn_uncheck_all.Disable()
+
+        self.lbl_status.SetLabel(_("Preparing..."))
         self.ShowProgress()
         self.t0 = time.time()
         self.elapsed_time_timer.Start(1000)
+        wx.SafeYield(self)
 
         image = slc.Slice().matrix
         spacing = slc.Slice().spacing
@@ -331,17 +348,6 @@ class TotalSegmenterDialog(DeepLearningSegmenterDialog):
         except (KeyError, AttributeError):
             device_id = "cpu"
         use_gpu = "cpu" not in device_id.lower()
-
-        self.btn_close.Disable()
-        self.btn_stop.Enable()
-        self.btn_segment.Disable()
-        self.chk_new_mask.Disable()
-        self.cb_backends.Disable()
-        self.cb_devices.Disable()
-        self.cb_task.Disable()
-        self.tree.Disable()
-        self.btn_check_all.Disable()
-        self.btn_uncheck_all.Disable()
 
         # id -> name for per-structure mask naming.
         selected_names = {int(cid): self._current_labels[cid] for cid in selected}
