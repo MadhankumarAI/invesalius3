@@ -31,7 +31,6 @@ from scipy import ndimage
 import invesalius.constants as const
 import invesalius.data.converters as converters
 import invesalius.session as ses
-import invesalius.utils as utils
 import invesalius_rs as floodfill
 from invesalius.data.volume_mask import VolumeMask
 from invesalius.pubsub import pub as Publisher
@@ -245,6 +244,8 @@ class Mask:
             return "Brain stem"
         elif self.name.lower().startswith("choroid_plexus"):
             return "Choroid plexus"
+        elif self.name.lower().startswith("totalseg"):
+            return "Total Segmentator"
         else:
             return "General"
 

@@ -252,7 +252,7 @@ class TotalSegProcess(SegmentProcess):
                 )
                 continue
 
-            mask_name = new_name_by_pattern(structure)
+            mask_name = new_name_by_pattern(f"totalseg_{structure}")
             mask = slc.Slice().create_new_mask(name=mask_name, derived_from=derived)
             print(
                 f"[totalseg-parent] {structure} (class {cid}): {voxel_count} voxels -> {mask_name}",

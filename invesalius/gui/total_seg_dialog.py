@@ -38,7 +38,11 @@ TASK_DISPLAY_MAP = {
     "CT - Lower resolution": "ct_total_3mm",
     "MRI": "mri_total",
 }
-_DEFAULT_TASK_DISPLAY = "CT - Lower resolution"
+_DEFAULT_TASK_DISPLAY = "CT - High resolution"
+
+
+def _display_label(name: str) -> str:
+    return " ".join(w.capitalize() for w in name.split("_"))
 
 
 def _task_labels(task, cache_only=False):
@@ -216,7 +220,7 @@ class TotalSegmenterDialog(DeepLearningSegmenterDialog):
             self._category_items[cat_item] = list(class_ids)
             for class_id in class_ids:
                 name = self._current_labels[class_id]
-                child = self.tree.AppendItem(cat_item, name, ct_type=1)
+                child = self.tree.AppendItem(cat_item, _display_label(name), ct_type=1)
                 self._class_items[child] = class_id
             self.tree.Expand(cat_item)
 
