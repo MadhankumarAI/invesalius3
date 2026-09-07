@@ -25,6 +25,7 @@ import time
 import numpy as np
 
 import invesalius.data.slice_ as slc
+from invesalius.i18n import tr as _
 from invesalius.segmentation.deep_learning.segment import SegmentProcess
 from invesalius.utils import new_name_by_pattern
 
@@ -112,13 +113,19 @@ class TotalSegProcess(SegmentProcess):
         n_parts = len(parts)
         for pi, p in enumerate(parts, start=1):
             print(f"[totalseg-child] resolving sidecar for {p}...", flush=True)
-            self._set_status(f"Downloading sidecar for {p} ({pi}/{n_parts})")
+            self._set_status(
+                _("Downloading sidecar for {p} ({pi}/{n_parts})").format(
+                    p=p, pi=pi, n_parts=n_parts
+                )
+            )
             sc_path = get_sidecar_path(p, progress_callback=dl_cb)
             sidecars[p] = read_sidecar(sc_path)
             print(f"[totalseg-child]   -> {sc_path}", flush=True)
 
             print(f"[totalseg-child] resolving weights for {p}...", flush=True)
-            self._set_status(f"Downloading {p} weights ({pi}/{n_parts})")
+            self._set_status(
+                _("Downloading {p} weights ({pi}/{n_parts})").format(p=p, pi=pi, n_parts=n_parts)
+            )
             weight_paths[p] = get_model_path(p, self.backend, progress_callback=dl_cb)
             print(f"[totalseg-child]   -> {weight_paths[p]}", flush=True)
         comm_array[0] = 0.0
@@ -139,7 +146,11 @@ class TotalSegProcess(SegmentProcess):
         )
         for i, part in enumerate(parts):
             print(f"[totalseg-child] [{i + 1}/{n_parts}] loading model: {part}", flush=True)
-            self._set_status(f"Loading model {part} ({i + 1}/{n_parts})")
+            self._set_status(
+                _("Loading model {part} ({idx}/{n_parts})").format(
+                    part=part, idx=i + 1, n_parts=n_parts
+                )
+            )
             handle = load_model(
                 weight_paths[part],
                 backend=self.backend,
@@ -162,7 +173,11 @@ class TotalSegProcess(SegmentProcess):
                 f"[totalseg-child] [{i + 1}/{n_parts}] running inference on {part}...",
                 flush=True,
             )
-            self._set_status(f"Running inference on {part} ({i + 1}/{n_parts})")
+            self._set_status(
+                _("Running inference on {part} ({idx}/{n_parts})").format(
+                    part=part, idx=i + 1, n_parts=n_parts
+                )
+            )
             t_inf = time.time()
             preds[part] = run_inference(
                 volume_zyx,
@@ -182,7 +197,7 @@ class TotalSegProcess(SegmentProcess):
             )
 
         if _merge.is_multipart(self.task):
-            self._set_status("Merging part predictions")
+            self._set_status(_("Merging part predictions"))
             unified = _merge.merge_label_maps(preds, self.task)
         else:
             unified = preds[parts[0]]
@@ -190,7 +205,7 @@ class TotalSegProcess(SegmentProcess):
         # Reverse the X-flip we did before inference so masks land in InVesalius coords.
         unified = np.ascontiguousarray(unified[:, :, ::-1])
 
-        self._set_status("Writing result")
+        self._set_status(_("Writing result"))
 
         u = np.unique(unified)
         print(
@@ -252,7 +267,10 @@ class TotalSegProcess(SegmentProcess):
                 )
                 continue
 
-            mask_name = new_name_by_pattern(f"totalseg_{structure}")
+            from . import label_i18n as _label_i18n
+
+            display_structure = _label_i18n.translate_structure(structure).replace(" ", "_")
+            mask_name = new_name_by_pattern(f"totalseg_{display_structure}")
             mask = slc.Slice().create_new_mask(name=mask_name, derived_from=derived)
             print(
                 f"[totalseg-parent] {structure} (class {cid}): {voxel_count} voxels -> {mask_name}",

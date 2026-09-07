@@ -76,8 +76,9 @@ class TotalSegmenterDialog(DeepLearningSegmenterDialog):
         # Deferred so import cost is only paid when the dialog opens.
         from invesalius.segmentation.deep_learning.totalseg.segment_process import TotalSegProcess
 
-        self._task_choices = list(TASK_DISPLAY_MAP.keys())
-        self._default_task = _DEFAULT_TASK_DISPLAY
+        self._task_choices = [_(name) for name in TASK_DISPLAY_MAP.keys()]
+        self._display_to_task = {_(name): tid for name, tid in TASK_DISPLAY_MAP.items()}
+        self._default_task = _(_DEFAULT_TASK_DISPLAY)
         self._current_labels = {}
         self._current_categories = {}
         self._category_items = {}
@@ -131,7 +132,7 @@ class TotalSegmenterDialog(DeepLearningSegmenterDialog):
 
         self.lbl_status = wx.StaticText(self, -1, "")
 
-        self._populate_tree(TASK_DISPLAY_MAP[self.cb_task.GetValue()])
+        self._populate_tree(self._display_to_task[self.cb_task.GetValue()])
 
         # Not applicable to label-map output.
         self.sld_threshold.Hide()
@@ -219,22 +220,27 @@ class TotalSegmenterDialog(DeepLearningSegmenterDialog):
             ).ShowModal()
             return
 
+        from invesalius.segmentation.deep_learning.totalseg.label_i18n import (
+            translate_structure,
+        )
+
         for category, class_ids in sorted(self._current_categories.items()):
             cat_item = self.tree.AppendItem(
-                self._tree_root, f"{category} ({len(class_ids)})", ct_type=1
+                self._tree_root, f"{_(category)} ({len(class_ids)})", ct_type=1
             )
             self._category_items[cat_item] = list(class_ids)
             sorted_ids = sorted(
-                class_ids, key=lambda cid: _natural_key(_display_label(self._current_labels[cid]))
+                class_ids,
+                key=lambda cid: _natural_key(translate_structure(self._current_labels[cid])),
             )
             for class_id in sorted_ids:
                 name = self._current_labels[class_id]
-                child = self.tree.AppendItem(cat_item, _display_label(name), ct_type=1)
+                child = self.tree.AppendItem(cat_item, translate_structure(name), ct_type=1)
                 self._class_items[child] = class_id
             self.tree.Expand(cat_item)
 
     def OnTaskChanged(self, evt):
-        self._populate_tree(TASK_DISPLAY_MAP[self.cb_task.GetValue()])
+        self._populate_tree(self._display_to_task[self.cb_task.GetValue()])
 
     def OnCheckAll(self, evt):
         # Category first, TR_AUTO_CHECK_CHILD cascades to children automatically.
@@ -322,7 +328,7 @@ class TotalSegmenterDialog(DeepLearningSegmenterDialog):
             Publisher.sendMessage("Reload actual slice")
 
     def OnSegment(self, evt):
-        task = TASK_DISPLAY_MAP[self.cb_task.GetValue()]
+        task = self._display_to_task[self.cb_task.GetValue()]
         selected = self._collect_selected_class_ids()
         if not selected:
             dialogs.ErrorMessageBox(
