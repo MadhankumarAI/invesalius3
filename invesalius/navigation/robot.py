@@ -58,6 +58,7 @@ class Robot:
 
         self.objective = RobotObjective.NONE
         self.target = None
+        self.target_marker_id = None
 
         # If tracker already has fiducials set, send them to the robot; this can happen, e.g.,
         # when a pre-existing state is loaded at start-up.
@@ -67,7 +68,6 @@ class Robot:
         success = self.LoadConfig()
         if success:
             self.ConnectToRobot()
-            self.InitializeRobot()
 
         self.__bind_events()
 
@@ -158,8 +158,11 @@ class Robot:
             Publisher.sendMessage(
                 "Neuronavigation to Robot: Request config", robot_id=self.robot_id
             )
+
+            # Send matrix and coil index once connected
+            if self.matrix_tracker_to_robot is not None:
+                self.InitializeRobot()
         else:
-            self.SetCoilName(None)
             Publisher.sendMessage("Update option main coil", done=True)
 
     def RegisterRobot(self):
@@ -171,6 +174,11 @@ class Robot:
         if not self.tracker.tracker_connected:
             wx.MessageBox(_("Tracker is not connect."), _("InVesalius 3"))
             return
+
+        if not self.coil_name:
+            wx.MessageBox(_("Attach a coil to the robot before registering it."), _("InVesalius 3"))
+            return
+
         self.robot_coregistration_dialog = dlg.RobotCoregistrationDialog(
             robot=self, tracker=self.tracker
         )
@@ -372,9 +380,17 @@ class Robot:
 
     def UnsetTarget(self, marker):
         self.target = None
+        self.target_marker_id = None
         Publisher.sendMessage("Neuronavigation to Robot: Unset target", robot_id=self.robot_id)
 
     def SetTarget(self, marker):
+        # Set robot objective to NONE when a new target is selected. This prevents the robot from
+        # automatically moving to the new target (which would be the case if robot objective was previously
+        # set to TRACK_TARGET). Preventing the automatic moving makes robot movement more explicit and predictable.
+        if getattr(self, "target_marker_id", None) != marker.marker_uuid:
+            self.SetObjective(RobotObjective.NONE)
+            self.target_marker_id = marker.marker_uuid
+
         coord = marker.position + marker.orientation
 
         # TODO: The coordinate systems of slice viewers and volume viewer should be unified, so that this coordinate
@@ -410,6 +426,22 @@ class Robot:
             robot_id=self.robot_id,
         )
 
+    def UpdateDisplacementToTarget(self, displacement):
+        wx.CallAfter(
+            Publisher.sendMessage,
+            "Neuronavigation to Robot: Update displacement to target",
+            displacement=displacement,
+            robot_id=self.robot_id,
+        )
+
+    def SendStatusCoilAtTarget(self, coil_at_target):
+        wx.CallAfter(
+            Publisher.sendMessage,
+            "From Neuronavigation: Coil at target",
+            state=coil_at_target,
+            robot_id=self.robot_id,
+        )
+
 
 class Robots(metaclass=Singleton):
     """
@@ -421,6 +453,18 @@ class Robots(metaclass=Singleton):
         self.robots_by_id = {}
         self.robots_by_coil = {}
         self.n_robots_created = 0
+        self.main_coil_name = None
+
+        self.LoadConfig()
+
+    def __bind_events(self):
+        pass
+
+    def LoadConfig(self):
+        session = ses.Session()
+        state = session.GetConfig("navigation")
+        if state is not None:
+            self.main_coil_name = state.get("main_coil", None)
 
     def AddRobot(self, tracker, navigation, icp, coil_name=None):
         robot_id = self.n_robots_created
@@ -428,12 +472,49 @@ class Robots(metaclass=Singleton):
 
         new_robot = Robot(robot_id, tracker, navigation, icp, coil_name)
         self.robots_by_id[robot_id] = new_robot
-        if coil_name:
-            self.robots_by_coil[coil_name] = new_robot
+
+        active_coil_name = coil_name or new_robot.coil_name
+        if active_coil_name:
+            self.robots_by_coil[active_coil_name] = new_robot
+
+        wx.CallAfter(Publisher.sendMessage, "Robot added", robot=new_robot)
+
         return new_robot
 
-    def GetActiveRobot(self, main_coil_name):
-        return self.robots_by_coil.get(main_coil_name)
+    def AssignCoilToRobot(self, robot_id, coil_name):
+        robot = self.GetRobot(robot_id)
+        if not robot:
+            return
+
+        old_coil_name = robot.coil_name
+        if old_coil_name and old_coil_name in self.robots_by_coil:
+            del self.robots_by_coil[old_coil_name]
+
+        if coil_name:
+            self.robots_by_coil[coil_name] = robot
+
+        robot.SetCoilName(coil_name)
+
+    def SetMainCoil(self, main_coil_name):
+        if main_coil_name in self.robots_by_coil:
+            self.main_coil_name = main_coil_name
+            robot = self.GetActiveRobot()
+            if robot:
+                robot.SendTargetToRobot()
+
+    def GetActiveRobot(self):
+        if self.main_coil_name:
+            return self.robots_by_coil.get(self.main_coil_name)
+        return None
 
     def GetRobot(self, robot_id):
         return self.robots_by_id.get(robot_id)
+
+    def SetNoneObjectiveToAll(self):
+        for robot in self.robots_by_id.values():
+            if robot.objective != RobotObjective.NONE:
+                robot.SetObjective(RobotObjective.NONE)
+
+    def SendTargetToAll(self):
+        for robot in self.robots_by_id.values():
+            robot.SendTargetToRobot()

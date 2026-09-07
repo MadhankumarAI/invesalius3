@@ -1127,12 +1127,12 @@ class SurfaceManager:
             dialog.running = False
 
     def on_publish_surface(self):
-        Publisher.sendMessage("Stop navigation")
+        Publisher.sendMessage("Press start navigation button", pressed=False)
         wx.Yield()
         progress = dialogs.PublishingSurfacesProgressWindow(maximum=100)
         self._publish_surfaces_worker(progress)
         progress.Close()
-        Publisher.sendMessage("Start navigation")
+        Publisher.sendMessage("Press start navigation button", pressed=True)
 
     def _publish_surfaces_worker(self, progress):
         proj = prj.Project()
